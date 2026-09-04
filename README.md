@@ -1,57 +1,70 @@
 # HIV-1 GWAS and Meta-analysis
 
-This repository contains the analysis code used for the HIV-1 genome-wide association study (GWAS), meta-analysis, and sensitivity analyses.
+**CCR5 regulatory variants and novel loci associated with susceptibility to HIV-1 infection in Sub-Saharan African populations**
 
-The analysis is organised into separate directories corresponding to the main stages of the workflow.
+This repository contains the analysis code and computational workflow for the HIV-1 genome-wide association study (GWAS), meta-analysis, fine-mapping, SUSIE/colocalisation, polygenic risk score (PRS), and sensitivity analyses.
+
+The analysis is organised into directories corresponding to the main stages of the workflow.
+
 
 ## Repository structure
 
 ```text
 .
+├── 0_inital_call/
 ├── 1_qc_pheno/
 ├── 2_qcgenetics/
 ├── 3_association/
 ├── 4_metaanalysis/
-├── sensitivity/
+├── 5_finemapping/
+├── 6_susie_coloc/
+├── 7_PRS/
+├── 8_sensitivity/
 ├── LICENSE
 └── README.md
 ```
 
 ---
 
+## 0. `0_inital_call`
+
+This directory contains the initial study and documentation files used to define the analysis and prepare the contributing datasets.
+
+---
+
 ## 1. `1_qc_pheno`
 
-This directory contains the **phenotype quality-control and preparation** scripts.
+This directory contains the **phenotype quality-control and preparation** workflows.
 
-The scripts prepare the phenotype information required for the HIV-1 GWAS, including:
+The analyses include:
 
-* checking HIV status;
-* selecting eligible participant: s;
+* checking and defining HIV status;
+* selecting eligible participants;
 * applying phenotype-related exclusion criteria;
 * preparing age and sex variables;
-* generating the phenotype files used for association analyses.
+* generating phenotype files for downstream analyses.
 
-The phenotype preparation is performed separately for the contributing datasets where required.
+Phenotype preparation is performed separately for the contributing datasets where required.
 
 ---
 
 ## 2. `2_qcgenetics`
 
-This directory contains the **genetic quality-control and ancestry/QC workflow**.
+This directory contains the **genetic quality-control and ancestry workflows**.
 
 The analyses include:
 
 * genotype quality control;
 * sample and genotype missingness filtering;
 * Hardy-Weinberg equilibrium filtering;
-* relatedness and duplicate detection;
+* duplicate and relatedness detection;
 * ancestry/admixture analysis;
 * principal-component analysis (PCA);
-* identification of PCA outliers;
+* identification of ancestry and PCA outliers;
 * genotype harmonisation;
 * preparation of genotype data for imputation.
 
-The output of this stage is the QC-passed genotype dataset used for downstream imputation and GWAS.
+The resulting QC-passed datasets are used for downstream GWAS analyses.
 
 ---
 
@@ -59,55 +72,83 @@ The output of this stage is the QC-passed genotype dataset used for downstream i
 
 This directory contains the **HIV-1 GWAS association analyses**.
 
-GWAS analyses were performed using the **H3AGWAS pipeline and SAIGE**.
+GWAS analyses were performed using the **H3AGWAS pipeline and SAIGE** for the relevant contributing cohorts and population/sex groups.
 
-Analyses were performed for the relevant cohorts and population/sex groups using binary HIV status as the phenotype.
+Binary HIV status was used as the phenotype, with covariates defined for each dataset.
 
-Covariates and other analysis parameters are specified in the individual analysis commands.
-
-The resulting GWAS summary statistics are used as input for the meta-analysis.
+The resulting GWAS summary statistics are used for downstream meta-analysis.
 
 ---
 
 ## 4. `4_metaanalysis`
 
-This directory contains the **GWAS meta-analysis workflow**.
+This directory contains the **GWAS meta-analysis workflows**.
 
-The workflow includes:
+The analyses include:
 
 * preparation and harmonisation of GWAS summary statistics;
-* conversion of summary statistics where required;
 * variant matching across datasets;
 * meta-analysis using **METAL**;
-* heterogeneity analysis;
-* regional meta-analyses;
+* heterogeneity analyses;
+* population-specific meta-analyses;
 * Sub-Saharan African meta-analysis;
-* combined African and European-ancestry meta-analysis.
+* combined Sub-Saharan African and European meta-analysis.
 
-The meta-analysis combines summary statistics from the contributing cohorts rather than individual-level data.
+The meta-analyses are based on GWAS summary statistics from the contributing datasets.
 
 ---
 
-## 5. `sensitivity`
+## 5. `5_finemapping`
+
+This directory contains the **fine-mapping analyses** used to investigate genomic regions showing evidence of association.
+
+The analyses identify variants that may account for the observed association signals and generate credible sets for associated regions.
+
+---
+
+## 6. `6_susie_coloc`
+
+This directory contains **SUSIE fine-mapping and colocalisation analyses**.
+
+These analyses are used to further investigate associated genomic regions and assess whether genetic association signals may share a common underlying signal with regulatory or other molecular traits.
+
+---
+
+## 7. `7_PRS`
+
+This directory contains the **polygenic risk score (PRS) analyses**.
+
+The workflow includes:
+
+* preparation of genotype and phenotype data;
+* construction of PRS using external GWAS summary statistics;
+* adjustment for population structure and relevant covariates;
+* logistic regression analyses;
+* evaluation of PRS performance using ROC/AUC analyses.
+
+---
+
+## 8. `8_sensitivity`
 
 This directory contains **sensitivity analyses** used to assess the robustness of the main findings.
 
-These analyses include:
+The analyses include:
 
-* leave-one-population-out meta-analysis;
-* analysis excluding self-identified information where applicable;
+* leave-one-cohort analyses;
+* analyses excluding self-reported HIV status where applicable;
 * repeat GWAS/meta-analysis analyses;
-* comparison of sensitivity-analysis results with the primary meta-analysis.
+* comparison of sensitivity analyses with the primary results.
 
-The purpose is to determine whether the main associations are robust to changes in population inclusion or phenotype/participant definitions.
+These analyses assess whether the observed associations are robust to changes in cohort inclusion or phenotype definitions.
 
 ---
 
 # Overall workflow
 
-The main analysis follows the sequence:
-
 ```text
+0_inital_call
+     |
+     v
 1_qc_pheno
      |
      v
@@ -129,16 +170,31 @@ Imputation
 HIV-1 GWAS
      |
      v
-GWAS summary statistics
-     |
-     v
 4_metaanalysis
      |
      v
-Meta-analysis
+GWAS meta-analysis
      |
      v
-sensitivity
+5_finemapping
+     |
+     v
+Fine-mapping
+     |
+     v
+6_susie_coloc
+     |
+     v
+SUSIE and colocalisation
+     |
+     v
+7_PRS
+     |
+     v
+Polygenic risk score analyses
+     |
+     v
+8_sensitivity
      |
      v
 Robustness and sensitivity analyses
@@ -148,7 +204,7 @@ Robustness and sensitivity analyses
 
 Individual-level genotype and phenotype data are not included in this repository.
 
-The repository contains the analysis scripts and computational workflow required to reproduce the analyses when the appropriate authorised input data are available.
+The repository contains analysis scripts and computational workflows that can be used to reproduce the analyses when the appropriate authorised input data are available.
 
 ## License
 
@@ -157,5 +213,4 @@ The repository is distributed under the license specified in:
 ```text
 LICENSE
 ```
-
 
