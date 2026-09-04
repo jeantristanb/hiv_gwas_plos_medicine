@@ -1,0 +1,149 @@
+# JCS HIV-1 phenotype and QC preparation
+
+This script prepares the JCS phenotype dataset for downstream HIV-1 GWAS analyses.
+
+HIV-1 status was defined using serological measurements for the **gag** and **env** antigens. Participants were classified as HIV-1 positive when both antigen thresholds were met.
+
+The workflow:
+
+1. Read the JCS phenotype dataset.
+2. Remove duplicate participants based on `Study_ID`.
+3. Remove samples identified as mistaken identities.
+4. Merge age information.
+5. Define HIV-1 status using the gag and env thresholds.
+6. Add FID and IID identifiers for downstream genetic analyses.
+7. Update sex information in the JCS PLINK dataset.
+
+## Phenotype and QC preparation
+
+```r
+# ============================================================
+# JCS HIV-1 GWAS
+# Phenotype and QC preparation
+# ============================================================
+
+library(dplyr)
+
+# ------------------------------------------------------------
+# Input phenotype data
+# ------------------------------------------------------------
+
+# Read JCS phenotype data
+jcs <- read.csv(
+  "DMZ_gwasind_v71223.csv",
+  stringsAsFactors = FALSE
+)
+
+# ------------------------------------------------------------
+# Remove duplicate participants
+# ------------------------------------------------------------
+
+jcs <- jcs %>%
+  distinct(Study_ID, .keep_all = TRUE)
+
+# ------------------------------------------------------------
+# Remove mistaken-identity samples
+# ------------------------------------------------------------
+
+# Remove samples identified as mistaken identities
+jcs <- jcs %>%
+  filter(!grepl("^on tube:", comment_DKFZ))
+
+# ------------------------------------------------------------
+# Merge age
+# ------------------------------------------------------------
+
+jcs_age <- read.table(
+  "jcs_age.txt",
+  header = TRUE,
+  stringsAsFactors = FALSE,
+  sep = "\t"
+)
+
+jcs <- jcs %>%
+  inner_join(jcs_age, by = "Study_ID")
+
+# ------------------------------------------------------------
+# Define HIV-1 status
+# ------------------------------------------------------------
+
+# HIV-1 positive:
+# gag >= 350 AND env >= 170
+
+jcs$HIV1 <- ifelse(
+  jcs$gag >= 350 & jcs$env >= 170,
+  1,
+  0
+)
+
+# ------------------------------------------------------------
+# Add FID and IID
+# ------------------------------------------------------------
+
+jcs$FID <- jcs$Study_ID
+jcs$IID <- jcs$Study_ID
+
+# ------------------------------------------------------------
+# Write final phenotype file
+# ------------------------------------------------------------
+
+write.table(
+  jcs,
+  "jcs_hiv1.txt",
+  sep = "\t",
+  quote = FALSE,
+  row.names = FALSE
+)
+```
+
+## Output
+
+The final phenotype dataset is:
+
+```text
+jcs_hiv1.txt
+```
+
+This file contains the participant identifiers, phenotype variables, age, and the binary HIV-1 phenotype used for downstream GWAS analyses.
+
+## QC criteria
+
+* Duplicate participants were removed based on `Study_ID`.
+* Six samples identified as mistaken identities were removed.
+* Age was merged using `Study_ID`.
+* HIV-1 positive status was defined as `gag >= 350` and `env >= 170`.
+* FID and IID were assigned using `Study_ID`.
+
+## Update sex information
+
+Sex information was updated in the JCS PLINK dataset for the 5,017 individuals retained after removal of duplicate and incorrectly identified samples.
+
+```bash
+# ============================================================
+# JCS HIV-1 GWAS
+# Update sex information
+# ============================================================
+
+cd /home/fourieisabel/input_dir
+
+# Update the JCS PLINK dataset with sex information for the
+# 5,017 individuals retained after QC
+plink \
+  --bfile /spaces/jeantristan/recall_awigen_ark_jcs/jcs/hg38_array/jcs \
+  --keep jcs_gender.txt \
+  --update-sex jcs_gender.txt \
+  --make-bed \
+  --out jcs_gender
+```
+
+## Output
+
+The updated PLINK files are:
+
+```text
+jcs_gender.bed
+jcs_gender.bim
+jcs_gender.fam
+```
+
+Individual-level JCS phenotype and genotype data are not included in the public repository.

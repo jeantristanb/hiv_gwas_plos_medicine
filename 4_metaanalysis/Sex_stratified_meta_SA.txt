@@ -1,0 +1,172 @@
+```r
+# ============================================================
+# Sex comparison of genome-wide significant SNPs
+# South Africa HIV-1 meta-analysis
+# ============================================================
+#
+# Description:
+# This script compares the effect estimates for genome-wide
+# significant SNPs identified in the overall South Africa HIV-1
+# meta-analysis between female and male participants.
+#
+# SNPs reaching genome-wide significance (P < 5e-8) in the
+# overall South Africa meta-analysis are extracted from the
+# overall, female-specific, and male-specific meta-analysis
+# results.
+#
+# For each significant SNP, female and male effect estimates
+# are compared using a Z-test for heterogeneity. The direction
+# of the female and male effects is also compared with the
+# direction of the overall meta-analysis effect.
+#
+# Input files:
+#   meta_hiv_south_x1.tbl
+#   meta_hiv_south_female1.tbl
+#   meta_hiv_south_male1.tbl
+#
+# Output:
+#   meta_hiv_south_sex_comparison_significant_snps.txt
+#
+# ============================================================
+
+
+# ============================================================
+# Load packages
+# ============================================================
+
+library(data.table)
+
+
+# ============================================================
+# Read meta-analysis results
+# ============================================================
+
+meta <- fread("meta_hiv_south_x1.tbl")
+female <- fread("meta_hiv_south_female1.tbl")
+male <- fread("meta_hiv_south_male1.tbl")
+
+
+# ============================================================
+# Identify genome-wide significant SNPs
+# ============================================================
+
+sig <- meta[`P-value` < 5e-8, MarkerName]
+
+
+# ============================================================
+# Extract overall meta-analysis results
+# ============================================================
+
+meta_sub <- meta[MarkerName %in% sig,
+  .(
+    `Chr:Position(hg38)` = MarkerName,
+    Meta_Effect = Effect,
+    Meta_SE = StdErr,
+    Meta_P = `P-value`,
+    Meta_Freq = Freq1
+  )]
+
+
+# ============================================================
+# Extract female-specific meta-analysis results
+# ============================================================
+
+female_sub <- female[MarkerName %in% sig,
+  .(
+    `Chr:Position(hg38)` = MarkerName,
+    Female_Effect = Effect,
+    Female_SE = StdErr,
+    Female_P = `P-value`,
+    Female_Freq = Freq1
+  )]
+
+
+# ============================================================
+# Extract male-specific meta-analysis results
+# ============================================================
+
+male_sub <- male[MarkerName %in% sig,
+  .(
+    `Chr:Position(hg38)` = MarkerName,
+    Male_Effect = Effect,
+    Male_SE = StdErr,
+    Male_P = `P-value`,
+    Male_Freq = Freq1
+  )]
+
+
+# ============================================================
+# Merge overall, female, and male results
+# ============================================================
+
+sex_comparison <- merge(
+  meta_sub,
+  female_sub,
+  by = "Chr:Position(hg38)",
+  all.x = TRUE
+)
+
+sex_comparison <- merge(
+  sex_comparison,
+  male_sub,
+  by = "Chr:Position(hg38)",
+  all.x = TRUE
+)
+
+
+# ============================================================
+# Calculate sex heterogeneity
+# ============================================================
+#
+# The difference between female and male effect estimates is
+# divided by the standard error of the difference.
+#
+# The resulting Z statistic is used to calculate a two-sided
+# P-value for heterogeneity between the female and male effects.
+#
+# ============================================================
+
+sex_comparison[, Z_sex_heterogeneity :=
+  (Female_Effect - Male_Effect) /
+  sqrt(Female_SE^2 + Male_SE^2)]
+
+sex_comparison[, P_sex_heterogeneity :=
+  2 * pnorm(-abs(Z_sex_heterogeneity))]
+
+
+# ============================================================
+# Compare direction of effect with the overall meta-analysis
+# ============================================================
+
+sex_comparison[, Female_direction :=
+  ifelse(
+    sign(Female_Effect) == sign(Meta_Effect),
+    "Same",
+    "Opposite"
+  )]
+
+sex_comparison[, Male_direction :=
+  ifelse(
+    sign(Male_Effect) == sign(Meta_Effect),
+    "Same",
+    "Opposite"
+  )]
+
+
+# ============================================================
+# Print results
+# ============================================================
+
+print(sex_comparison)
+
+
+# ============================================================
+# Save results
+# ============================================================
+
+fwrite(
+  sex_comparison,
+  "meta_hiv_south_sex_comparison_significant_snps.txt",
+  sep = "\t"
+)
+```

@@ -1,0 +1,44 @@
+```bash
+#!/bin/bash
+
+# ============================================================
+# HIV-1 GWAS FINE-MAPPING: SUB-SAHARAN AFRICA
+# ============================================================
+
+# Working directory
+cd /dataG/cancer/isabel_work/pGWAS/finemapping/africa_hiv_dif_param_maf_005
+
+# Start interactive session
+screen
+srun -c 2 --pty bash
+
+# Load Nextflow
+module load nextflow/22.10.4
+
+# Pull H3AGWAS pipeline
+nextflow pull h3abionet/h3agwas
+
+# Run fine-mapping
+nextflow run h3abionet/h3agwas/finemapping/main.nf \
+--head_pval "P-value" \
+--head_bp Position \
+--head_chr Chromosome \
+--head_rs MarkerName \
+--head_beta Effect \
+--head_se StdErr \
+--head_A1 Allele1 \
+--head_A2 Allele2 \
+--clump_r2 0.1 \
+--size_wind_kb 500 \
+--input_dir /dataG/cancer/isabel_work/input/awi_east_south \
+--input_pat awi_east_south_hg38_2 \
+--file_gwas /dataG/cancer/isabel_work/pGWAS/metal/meta_hiv_africa_x/meta_hiv_ssa.tbl \
+--threshold_p 0.000005 \
+--cut_maf 0.005 \
+--n_pop 17360 \
+--output_dir /dataG/cancer/isabel_work/pGWAS/finemapping/africa_hiv_dif_param_maf_005 \
+--genome_db hg38 \
+--output finemapping_africa_hiv_dif_param_maf_005 \
+-profile slurmSingularity \
+-resume
+```

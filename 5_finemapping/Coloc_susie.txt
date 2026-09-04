@@ -1,0 +1,630 @@
+# ============================================================
+# SABR eQTL COLOCALISATION ANALYSIS
+# ============================================================
+#
+# Loci:
+#   chr3:46367240
+#   chr8:28875139
+#   chr1:216797017
+#
+# For each locus:
+#   1. Extract all genes and SNPs within ±500 kb
+#   2. Harmonize GWAS/eQTL alleles with the AWI-Gen BIM file
+#   3. Create locus-specific genotype subsets
+#   4. Generate LD matrices using PLINK
+#   5. Run SuSiE fine-mapping for GWAS and eQTL data
+#   6. Run coloc.susie
+#   7. Save coloc summaries and credible sets
+#
+# ============================================================
+
+
+# ============================================================
+# 1. LOAD PACKAGES
+# ============================================================
+
+library(data.table)
+library(susieR)
+library(coloc)
+
+
+# ============================================================
+# 2. LOAD MERGED GWAS-eQTL DATA
+# ============================================================
+
+merged_gwas_eqtl <- fread(
+  "/dataG/cancer/isabel_work/pGWAS/sabr_eqtl/hiv_ssa_coloc_2/merged_gwas_eqtl_harm.txt"
+)
+
+merged_gwas_eqtl[, snp_id := CHRPOS]
+
+
+# ============================================================
+# 3. LOAD BIM FILE FOR LD
+# ============================================================
+
+bim <- fread(
+  "/dataG/cancer/isabel_work/input/awi_east_south/awi_east_south_hg38_2.bim",
+  header = FALSE
+)
+
+setnames(
+  bim,
+  c("CHR", "SNP", "CM", "BP", "A1", "A2")
+)
+
+bim[, snp_chrpos := paste0("chr", CHR, ":", BP)]
+
+
+# ============================================================
+# 4. DEFINE LOCI
+# ============================================================
+
+loci <- data.table(
+  chr = c(
+    "chr3",
+    "chr8",
+    "chr1"
+  ),
+  pos = c(
+    46367240,
+    28875139,
+    216797017
+  ),
+  kb = c(
+    500000,
+    500000,
+    500000
+  )
+)
+
+
+# ============================================================
+# 5. LOOP OVER LOCI
+# ============================================================
+
+for (locus in 1:nrow(loci)) {
+
+  chr <- loci$chr[locus]
+  pos <- loci$pos[locus]
+  kb  <- loci$kb[locus]
+
+  cat("\n")
+  cat("============================================================\n")
+  cat("Processing locus:", chr, pos, "\n")
+  cat("============================================================\n")
+
+
+  # ----------------------------------------------------------
+  # 5a. Loop over unique genes
+  # ----------------------------------------------------------
+
+  genes <- unique(merged_gwas_eqtl$gene_id)
+
+  for (gene_filter in genes) {
+
+    # Filter GWAS-eQTL for window + gene
+    merged_window <- merged_gwas_eqtl[
+      chr == chr &
+      position >= (pos - kb) &
+      position <= (pos + kb) &
+      gene_id == gene_filter
+    ]
+
+    if (nrow(merged_window) == 0) next
+
+
+    # --------------------------------------------------------
+    # Merge with BIM
+    # --------------------------------------------------------
+
+    merged <- merge(
+      merged_window,
+      bim,
+      by.x = "snp_id",
+      by.y = "snp_chrpos"
+    )
+
+
+    # --------------------------------------------------------
+    # Harmonize alleles
+    # --------------------------------------------------------
+
+    merged[, `:=`(
+      Allele1 = toupper(Allele1),
+      Allele2 = toupper(Allele2),
+      A1 = toupper(A1),
+      A2 = toupper(A2)
+    )]
+
+    merged[, status2 := fifelse(
+      (Allele1 == A1 & Allele2 == A2),
+      "match",
+      fifelse(
+        (Allele1 == A2 & Allele2 == A1),
+        "swap",
+        "mismatch"
+      )
+    )]
+
+    harmonized <- merged[status2 != "mismatch"]
+
+
+    # --------------------------------------------------------
+    # Write SNP list for PLINK
+    # --------------------------------------------------------
+
+    snp_list_file <- paste0(
+      "snps_harmonized_",
+      gene_filter,
+      ".txt"
+    )
+
+    fwrite(
+      harmonized[, .(SNP)],
+      snp_list_file,
+      col.names = FALSE,
+      quote = FALSE
+    )
+
+
+    # --------------------------------------------------------
+    # Write full harmonized table
+    # --------------------------------------------------------
+
+    harmonized_file <- paste0(
+      "harmonized_",
+      gene_filter,
+      ".txt"
+    )
+
+    fwrite(
+      harmonized,
+      harmonized_file,
+      sep = "\t",
+      quote = FALSE
+    )
+
+
+    # --------------------------------------------------------
+    # Create bfile subset for LD
+    # --------------------------------------------------------
+
+    system(paste(
+      "/opt/exp_soft/bioinf/plink/v1.90/plink",
+      "--bfile /dataG/cancer/isabel_work/input/awi_east_south/awi_east_south_hg38_2",
+      "--extract", snp_list_file,
+      "--make-bed",
+      "--out", paste0(
+        "awi_",
+        gene_filter,
+        "_harmonized"
+      )
+    ))
+
+
+    # --------------------------------------------------------
+    # Make LD matrix
+    # --------------------------------------------------------
+
+    system(paste(
+      "/opt/exp_soft/bioinf/plink/v1.90/plink",
+      "--bfile",
+      paste0(
+        "awi_",
+        gene_filter,
+        "_harmonized"
+      ),
+      "--keep-allele-order",
+      "--r square yes-really",
+      "--out",
+      paste0(
+        "ld_",
+        gene_filter
+      )
+    ))
+
+
+    # --------------------------------------------------------
+    # Annotate LD matrix
+    # --------------------------------------------------------
+
+    ld_numeric <- as.matrix(
+      fread(
+        paste0(
+          "ld_",
+          gene_filter,
+          ".ld"
+        ),
+        header = FALSE
+      )
+    )
+
+    snp_ids <- fread(
+      paste0(
+        "awi_",
+        gene_filter,
+        "_harmonized.bim"
+      )
+    )[, V2]
+
+    rownames(ld_numeric) <- colnames(ld_numeric) <-
+      paste0("chr", snp_ids)
+
+    fwrite(
+      as.data.table(
+        ld_numeric,
+        keep.rownames = "SNP"
+      ),
+      paste0(
+        "ld_",
+        gene_filter,
+        "_annotated.txt"
+      ),
+      sep = "\t"
+    )
+
+    cat(
+      "Processed gene:",
+      gene_filter,
+      "at",
+      chr,
+      pos,
+      "\n"
+    )
+  }
+
+
+  # ==========================================================
+  # 6. RUN SUSIE AND COLOC.SUSIE
+  # ==========================================================
+
+  genes <- unique(merged_gwas_eqtl$gene_id)
+
+  for (gene in genes) {
+
+    harmonized_file <- paste0(
+      "harmonized_",
+      gene,
+      ".txt"
+    )
+
+    ld_file <- paste0(
+      "ld_",
+      gene,
+      "_annotated.txt"
+    )
+
+    if (!file.exists(harmonized_file) |
+        !file.exists(ld_file)) {
+      next
+    }
+
+
+    # --------------------------------------------------------
+    # Load harmonized GWAS-eQTL data and LD
+    # --------------------------------------------------------
+
+    gwas_eqtl <- fread(harmonized_file)
+
+    ld_matrix <- fread(ld_file)
+
+
+    # --------------------------------------------------------
+    # Convert LD to numeric matrix
+    # --------------------------------------------------------
+
+    ld_numeric <- as.matrix(
+      ld_matrix[, -1, with = FALSE]
+    )
+
+    rownames(ld_numeric) <- ld_matrix$SNP
+
+    ld_numeric <- ld_numeric[
+      gwas_eqtl$snp_id,
+      gwas_eqtl$snp_id
+    ]
+
+
+    # ========================================================
+    # 6a. GWAS DATASET
+    # ========================================================
+
+    gwas <- list(
+      snp     = gwas_eqtl$snp_id,
+      beta    = gwas_eqtl$Effect,
+      varbeta = gwas_eqtl$StdErr^2,
+      MAF     = gwas_eqtl$maf.gwas,
+      pvalues = gwas_eqtl$P.value,
+      N       = 17360,
+      type    = "cc",
+      s       = 3069 / 17360,
+      LD      = ld_numeric
+    )
+
+
+    # ========================================================
+    # 6b. eQTL DATASET
+    # ========================================================
+
+    eqtl <- list(
+      snp     = gwas_eqtl$snp_id,
+      beta    = gwas_eqtl$slope,
+      varbeta = gwas_eqtl$slope_se^2,
+      MAF     = gwas_eqtl$maf,
+      pvalues = gwas_eqtl$pval_nominal,
+      N       = 614,
+      type    = "quant",
+      LD      = ld_numeric
+    )
+
+
+    # ========================================================
+    # 6c. QC
+    # ========================================================
+
+    check_dataset(
+      gwas,
+      req = "LD"
+    )
+
+    check_dataset(
+      eqtl,
+      req = "LD"
+    )
+
+
+    # ========================================================
+    # 6d. RUN SUSIE
+    # ========================================================
+
+    susie_gwas <- tryCatch({
+
+      runsusie(gwas)
+
+    }, error = function(e) {
+
+      cat(
+        "SuSiE GWAS failed for gene:",
+        gene,
+        "\n"
+      )
+
+      return(NULL)
+    })
+
+
+    susie_eqtl <- tryCatch({
+
+      runsusie(eqtl)
+
+    }, error = function(e) {
+
+      cat(
+        "SuSiE eQTL failed for gene:",
+        gene,
+        "\n"
+      )
+
+      return(NULL)
+    })
+
+
+    # --------------------------------------------------------
+    # Print convergence message
+    # --------------------------------------------------------
+
+    if (!is.null(susie_gwas)) {
+
+      cat(
+        "GWAS converged for gene:",
+        gene,
+        "\n"
+      )
+
+    } else {
+
+      cat(
+        "GWAS did NOT converge for gene:",
+        gene,
+        "\n"
+      )
+    }
+
+
+    if (!is.null(susie_eqtl)) {
+
+      cat(
+        "eQTL converged for gene:",
+        gene,
+        "\n"
+      )
+
+    } else {
+
+      cat(
+        "eQTL did NOT converge for gene:",
+        gene,
+        "\n"
+      )
+    }
+
+
+    # --------------------------------------------------------
+    # Skip coloc if either failed
+    # --------------------------------------------------------
+
+    if (is.null(susie_gwas) |
+        is.null(susie_eqtl)) {
+      next
+    }
+
+
+    # ========================================================
+    # 6e. COLOCALISATION
+    # ========================================================
+
+    susie.res <- coloc.susie(
+      susie_gwas,
+      susie_eqtl
+    )
+
+
+    # ========================================================
+    # 6f. SAVE COLOC SUMMARY
+    # ========================================================
+
+    summary_file <- paste0(
+      "coloc_susie_",
+      gene,
+      "_summary.txt"
+    )
+
+    fwrite(
+      as.data.table(
+        susie.res$summary,
+        keep.rownames = "coloc"
+      ),
+      summary_file,
+      sep = "\t"
+    )
+
+
+    # ========================================================
+    # 6g. SAVE CREDIBLE SETS + PIPS
+    # ========================================================
+
+    # GWAS credible sets
+
+    gwas_cs <- if (!is.null(susie_gwas$sets$cs)) {
+
+      data.table(
+        SNP = unlist(
+          susie_gwas$sets$cs
+        ),
+        PIP = susie_gwas$pip[
+          unlist(susie_gwas$sets$cs)
+        ],
+        trait = "GWAS",
+        gene = gene
+      )
+
+    } else {
+
+      data.table(
+        SNP = character(),
+        PIP = numeric(),
+        trait = "GWAS",
+        gene = gene
+      )
+    }
+
+
+    # eQTL credible sets
+
+    eqtl_cs <- if (!is.null(susie_eqtl$sets$cs)) {
+
+      data.table(
+        SNP = unlist(
+          susie_eqtl$sets$cs
+        ),
+        PIP = susie_eqtl$pip[
+          unlist(susie_eqtl$sets$cs)
+        ],
+        trait = "eQTL",
+        gene = gene
+      )
+
+    } else {
+
+      data.table(
+        SNP = character(),
+        PIP = numeric(),
+        trait = "eQTL",
+        gene = gene
+      )
+    }
+
+
+    # Combine and save
+
+    cs_all <- rbind(
+      gwas_cs,
+      eqtl_cs,
+      fill = TRUE
+    )
+
+    cs_file <- paste0(
+      "credible_sets_",
+      gene,
+      ".txt"
+    )
+
+    fwrite(
+      cs_all,
+      cs_file,
+      sep = "\t"
+    )
+
+
+    cat(
+      "Finished gene:",
+      gene,
+      "\n"
+    )
+  }
+
+
+  # ==========================================================
+  # 7. COMBINE COLOC SUMMARIES FOR THIS LOCUS
+  # ==========================================================
+
+  summary_files <- list.files(
+    pattern = "^coloc_susie_.*_summary\\.txt$"
+  )
+
+  if (length(summary_files) > 0) {
+
+    all_summaries <- rbindlist(
+      lapply(
+        summary_files,
+        function(f) {
+
+          dt <- fread(f)
+
+          dt[, gene :=
+               gsub(
+                 "^coloc_susie_|_summary\\.txt$",
+                 "",
+                 f
+               )]
+
+          dt
+        }
+      ),
+      fill = TRUE
+    )
+
+    fwrite(
+      all_summaries,
+      paste0(
+        "coloc_susie_all_genes_summary_",
+        chr,
+        "_",
+        pos,
+        ".txt"
+      ),
+      sep = "\t"
+    )
+  }
+
+
+  cat("\n")
+  cat(
+    "Finished locus:",
+    chr,
+    pos,
+    "\n"
+  )
+  cat("\n")
+}

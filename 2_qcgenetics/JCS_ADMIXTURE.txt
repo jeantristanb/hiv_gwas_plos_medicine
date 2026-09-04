@@ -1,0 +1,187 @@
+# JCS Admixture and ancestry QC
+
+This step performs ancestry quality control before the JCS HIV-1 GWAS.
+
+The analysis uses LD-pruned SNPs shared with 1000 Genomes reference populations and combines:
+
+* ADMIXTURE analysis
+* Cross-validation
+* Ancestry proportion estimation
+* Ancestry threshold filtering
+
+The analysis was performed separately for female and male JCS samples.
+
+The analysis uses **African ancestry (AFR)** as the reference ancestry.
+
+## Admixture analysis
+
+ADMIXTURE (v1.3.0) was performed using LD-pruned SNPs shared with 1000 Genomes reference populations.
+
+The 1000 Genomes reference populations included:
+
+```text
+European:    n=503
+East Asian:  n=504
+South Asian: n=489
+American:    n=347
+African:     n=661
+```
+
+ADMIXTURE was run for:
+
+```text
+K = 1 to 9
+```
+
+The analysis used:
+
+```text
+Threads:     5
+Random seed: 12345
+```
+
+For female JCS:
+
+```bash
+for K in {1..9}; do
+    admixture -j5 -seed=12345 "merged_fem1kg_hg38plink_MAF_LD.bed" $K --cv
+done
+```
+
+For male JCS:
+
+```bash
+for K in {1..9}; do
+    admixture -j5 -seed=12345 "merged_male1kg_hg38plink_MAF_LD.bed" $K --cv
+done
+```
+
+## 1000 Genomes population information
+
+Population information was extracted from the 1000 Genomes PLINK `.psam` files and combined with the corresponding JCS population information.
+
+For females:
+
+```bash
+head all_hg38.psam
+
+awk 'NR==1 {print $1, $5; next} {print $1, $5}' all_hg38.psam > 1kGpop.txt
+
+cat 1kGpop.txt /dataG/cancer/isabel_work/input/1kg_fem_hg38/fempop.txt > 1kGfem_pop.txt
+```
+
+For males:
+
+```bash
+head all_hg38.psam
+
+awk 'NR==1 {print $1, $5; next} {print $1, $5}' all_hg38.psam > 1kGpop.txt
+
+cat 1kGpop.txt /dataG/cancer/isabel_work/input/1kg_male_hg38/malepop.txt > 1kGmale_pop.txt
+```
+
+## Female JCS admixture
+
+The female ADMIXTURE results were combined with the 1000 Genomes population information to examine ancestry proportions.
+
+At K=3, the three ancestry components corresponded to:
+
+```text
+European
+African
+East-Asian
+```
+
+The African ancestry component was used for ancestry quality control.
+
+Female JCS samples with African ancestry below:
+
+```text
+89.5%
+```
+
+were identified for exclusion from downstream analyses.
+
+The threshold was applied to the K=3 African ancestry component:
+
+```r
+Fem_below_90_K3 <- admfempop3[
+  admfempop3$super_pop=="JCS(fem)" & admfempop3$V2 < 0.895,
+]
+
+write.csv(
+  Fem_below_90_K3,
+  file="Fem_below_90_K3.csv",
+  row.names=FALSE
+)
+```
+
+## Male JCS admixture
+
+The male ADMIXTURE results were combined with the 1000 Genomes population information to examine ancestry proportions.
+
+At K=3, the three ancestry components corresponded to:
+
+```text
+European
+African
+East-Asian
+```
+
+The African ancestry component was used for ancestry quality control.
+
+Male JCS samples with African ancestry below:
+
+```text
+89.5%
+```
+
+were identified for exclusion from downstream analyses.
+
+The threshold was applied to the K=3 African ancestry component:
+
+```r
+male_below_90_K3 <- admmalepop3[
+  admmalepop3$super_pop=="JCS(male)" & admmalepop3$V2 < 0.895,
+]
+
+write.csv(
+  male_below_90_K3,
+  file="male_below_90_K3.csv",
+  row.names=FALSE
+)
+```
+
+## Cross-validation errors
+
+Cross-validation errors were extracted from the ADMIXTURE output.
+
+For females:
+
+```bash
+grep -h CV admixture_fem1kG_h38_plink.out > CV_errors_fem1kg_hg38plink_MAF_LD.txt
+```
+
+For males:
+
+```bash
+grep -h CV admixture_male1kG_h38_plink.out > CV_errors_male1kg_hg38plink_MAF_LD.txt
+```
+
+The cross-validation results were plotted for:
+
+```text
+K = 1 to 9
+```
+
+to compare the cross-validation error across the tested K values.
+
+## Output
+
+The analysis produces:
+
+* ADMIXTURE ancestry proportion plots
+* Cross-validation error plots for K=1 to K=9
+* Lists of JCS samples below the 89.5% African ancestry threshold
+
+The ancestry results were used as part of the JCS ancestry quality-control process before the HIV-1 GWAS analysis.
