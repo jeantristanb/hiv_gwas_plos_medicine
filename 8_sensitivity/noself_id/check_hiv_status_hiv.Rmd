@@ -1,0 +1,399 @@
+---
+title: "AWI-Gen Phenotype Processing for HIV Analysis"
+author: "Jean-Tristan Brandenburg"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+  pdf_document: default
+---
+
+# Overview
+
+This document prepares the AWI-Gen phenotype dataset for analyses involving HIV status.
+
+The workflow includes:
+
+- Loading phenotype and admixture data
+- Merging datasets
+- Annotating study sites and geographical regions
+- Harmonizing HIV status
+- Applying genetic quality-control filters
+- Creating derived variables
+- Recovering original HIV variables
+- Excluding West African participants
+- Cleaning original HIV variables
+
+```{r setup, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+```
+
+# Load phenotype datasets
+
+```{r load-data}
+
+# Processed phenotype dataset
+DataPheno <- read.csv(
+  "/dataE/AWIGenGWAS/pheno/raw/pheno_2020_07_30.csv"
+)
+
+Dataking<-read.table('/spaces/jeantristan/recall_awigen_ark_jcs/awigen//king/relat_2_arrayunrelated_toberemoved.txt')
+DataAdmix<-read.csv('/spaces/jeantristan/recall_awigen_ark_jcs/awigen/admixture/awigen_qcgenet_v3/plot/combineres.tsv',sep='\t')
+
+
+# Original phenotype database
+newdata_pheno <- read.csv(
+  "/spaces/jeantristan/ckd_project/DataI/all_awigen1.csv"
+)
+
+```
+
+# Merge admixture and phenotype data
+
+The phenotype information is merged with the genetic dataset using the participant identifier.
+
+```{r merge}
+
+Data2 <- merge(
+  DataAdmix,
+  DataPheno,
+  by.x = "FID",
+  by.y = "study_id",
+  all = FALSE
+)
+
+```
+
+# Annotate study site and region
+
+Study sites are converted from numeric codes into readable names and grouped into geographical regions.
+
+```{r sites}
+
+Data2$site_qc <- c(
+  "Agincourt",
+  "Dikgale",
+  "Nairobi",
+  "Nanoro",
+  "Navrongo",
+  "Soweto"
+)[Data2$site]
+
+Data2$region_qc <- "None"
+
+Data2$region_qc[
+  Data2$site_qc %in% c("Agincourt", "Dikgale", "Soweto")
+] <- "South"
+
+Data2$region_qc[
+  Data2$site_qc == "Nairobi"
+] <- "East"
+
+Data2$region_qc[
+  Data2$site_qc %in% c("Nanoro", "Navrongo")
+] <- "West"
+
+table(Data2$site_qc)
+
+table(Data2$region_qc)
+
+```
+
+# HIV status harmonization
+
+The variable **hiv_final_status_c** summarizes HIV status.
+
+| Value | Interpretation |
+|------:|----------------|
+|0|HIV negative|
+|1|HIV positive|
+|2|Unknown|
+
+The original derivation was
+
+```text
+CASE
+WHEN (result_hiv IS NULL OR result_hiv = 2)
+ AND (hiv_positive IS NULL OR hiv_positive >=2)
+THEN 2
+
+WHEN result_hiv = 1
+ OR hiv_positive = 1
+THEN 1
+
+ELSE 0
+END
+```
+
+For Nanoro and Navrongo, unknown HIV status was treated as HIV negative.
+
+```{r hiv}
+
+Data2$hiv_final_status_c[
+  Data2$site_qc %in% c("Nanoro", "Navrongo") &
+  Data2$hiv_final_status_c == 2
+] <- 0
+
+table(Data2$hiv_final_status_c)
+
+```
+
+# Ancestry and sex variables
+
+Only participants with predominantly African ancestry are retained for the Nairobi cohort.
+
+```{r ancestry}
+
+Data2$NoAdm[
+  Data2$site_qc == "Nairobi" &
+  Data2$Adm_AFR > 0.7
+] <- TRUE
+
+Data2$sex_qc <- NA_character_
+
+Data2$sex_qc[Data2$sex == 0] <- "Female"
+Data2$sex_qc[Data2$sex == 1] <- "Male"
+
+table(Data2$sex_qc)
+
+```
+
+# Apply quality-control filters
+
+Participants are retained if they satisfy all of the following:
+
+- Pass principal component filtering
+- Are not duplicated/related (`Dataking`)
+- Have known HIV status
+- Pass ancestry filtering
+
+```{r filtering}
+
+keep <- !is.na(Data2$EigPcsFilter) &
+  !(Data2$FID %in% Dataking$V1) &
+  Data2$hiv_final_status_c != 2 &
+  !is.na(Data2$NoAdm) &
+  Data2$NoAdm
+
+Data3 <- Data2[keep, ]
+
+dim(Data3)
+
+```
+
+# Create derived variables
+
+```{r derived}
+
+Data3$hiv <- Data3$hiv_final_status_c
+
+Data3$age2 <- Data3$age^2
+
+summary(Data3$age)
+
+```
+
+# Recover original HIV variables
+
+The original HIV variables are reintroduced from the raw phenotype database.
+
+```{r merge-original}
+
+newdata_pheno2 <- newdata_pheno %>%
+  select(study_id, result_hiv, hiv_positive)
+
+newdata_pheno2$in_db <- TRUE
+
+Data3F <- merge(
+  Data3,
+  newdata_pheno2,
+  by.x = "FID",
+  by.y = "study_id",
+  all.x = TRUE
+)
+
+```
+
+# Exclude West African participants
+
+For analyses restricted to East and Southern African populations.
+
+```{r nowest}
+
+Data3F<- subset(
+  Data3F,
+  region_qc != "West"
+)
+
+
+```
+
+## Clean original HIV variables
+
+The original phenotype database contains two HIV-related variables:
+
+- **`hiv_positive`**: Initial HIV status recorded at enrolment, based on self-report and/or existing clinical records.
+- **`result_hiv`**: HIV test result obtained during the AWI-Gen study.
+
+Both variables use the following coding:
+
+- **0** = HIV negative
+- **1** = HIV positive
+- **≥2** = Unknown or unavailable HIV status
+
+For all analyses, values **≥2** were recoded to `NA` to represent missing data.
+
+```{r clean-hiv}
+
+Data3F$hiv_positive[
+  Data3F$hiv_positive >= 2
+] <- NA
+
+Data3F$result_hiv[
+  Data3F$result_hiv >= 2
+] <- NA
+
+```
+
+```{r}
+hiv_summary <- Data3F %>%
+  mutate(
+    hiv_positive_available = !is.na(hiv_positive),
+    result_hiv_available = !is.na(result_hiv),
+    both_available = hiv_positive_available & result_hiv_available
+  ) %>%
+  group_by(site_qc) %>%
+  summarise(
+    N = n(),
+    HIV_positive_non_missing = sum(hiv_positive_available),
+    HIV_positive_percent = round(100 * mean(hiv_positive_available), 1),
+    Result_HIV_non_missing = sum(result_hiv_available),
+    Result_HIV_percent = round(100 * mean(result_hiv_available), 1),
+    Both_non_missing = sum(both_available),
+    Both_percent = round(100 * mean(both_available), 1),
+    .groups = "drop"
+  )
+
+
+kable(hiv_summary)
+```
+
+
+# Comparison between initial status and result hiv
+
+```{r comparison}
+library(dplyr)
+library(tidyr)
+
+comparison <- Data3F %>%
+  mutate(
+    Initial_status = factor(
+      hiv_positive,
+      levels = c(0, 1, NA),
+      labels = c("Initial negative", "Initial positive", "Initial missing"),
+      exclude = NULL
+    ),
+    result_hiv = factor(
+      result_hiv,
+      levels = c(0, 1, NA),
+      labels = c("Result negative", "Result positive", "Missing"),
+      exclude = NULL
+    )
+  ) %>%
+  group_by(site_qc, Initial_status, result_hiv) %>%
+  summarise(N = n(), .groups = "drop") %>%
+  pivot_wider(
+    names_from = result_hiv,
+    values_from = N,
+    values_fill = 0
+  ) %>%
+  mutate(
+    Total = `Result negative` + `Result positive` + Missing,
+    `% Missing` = round(100 * Missing / Total, 1)
+  )
+
+# Add totals for each site
+comparison <- comparison %>%
+  group_by(site_qc) %>%
+  group_modify(~{
+    total_row <- .x %>%
+      summarise(
+        Initial_status = "Total",
+        `Result negative` = sum(`Result negative`),
+        `Result positive` = sum(`Result positive`),
+        Missing = sum(Missing),
+        Total = sum(Total),
+        `% Missing` = round(100 * Missing / Total, 1)
+      )
+
+    bind_rows(.x, total_row)
+  }) %>%
+  ungroup()
+
+# Overall summary (excluding site totals)
+overall <- comparison %>%
+  filter(Initial_status != "Total") %>%
+  group_by(Initial_status) %>%
+  summarise(
+    site_qc = "All sites",
+    `Result negative` = sum(`Result negative`),
+    `Result positive` = sum(`Result positive`),
+    Missing = sum(Missing),
+    Total = sum(Total),
+    `% Missing` = round(100 * Missing / Total, 1),
+    .groups = "drop"
+  )
+
+# Overall total
+overall_total <- overall %>%
+  summarise(
+    site_qc = "All sites",
+    Initial_status = "Total",
+    `Result negative` = sum(`Result negative`),
+    `Result positive` = sum(`Result positive`),
+    Missing = sum(Missing),
+    Total = sum(Total),
+    `% Missing` = round(100 * Missing / Total, 1)
+  )
+
+# Combine everything
+comparison <- bind_rows(
+  comparison,
+  overall,
+  overall_total
+)
+
+knitr::kable(comparison)
+write.csv(comparison, row.names=F, file='comp_awigen.csv')
+
+```
+
+# selection of sample for specific analysis 
+ * reviewer comment about self identificat
+ * keep just individual with result but exclude  individual with self identificaiton positive but negative 0? -> on medication `
+ * Retain only individuals with an available HIV test result (result_hiv). Exclude individuals who self-identified as HIV positive (hiv_positive = 1) but had a negative HIV test result (result_hiv = 0), as these individuals are likely receiving antiretroviral treatment and have a suppressed viral load.
+	
+```{r}
+if(!file.exists('pheno_qcnoreported/'))dir.create('pheno_qcnoreported/')
+Data_final <- Data3F[ !is.na(Data3F$result_hiv) & (is.na(Data3F$hiv_positive) | !(Data3F$hiv_positive == 1 & Data3F$result_hiv == 0)), ]
+
+for(region in unique(Data_final$region_qc)){
+        write.table(Data_final[Data_final$region_qc==region,c('FID','IID','hiv','age','age2','sex_qc')], file=paste('pheno_qcnoreported/',region,'.all',sep=''),sep='\t',row.names=F, col.names=T, quote=F)
+        for(gender in unique(Data_final$sex_qc))write.table(Data_final[Data_final$sex_qc==gender & Data_final$region_qc==region,c('FID','IID','hiv','age','age2','sex_qc')], file=paste('pheno_qcnoreported/',region,'_',gender,'.gender',sep=''),sep='\t',row.names=F, col.names=T, quote=F)
+}
+
+
+```
+
+
+
+# Session information
+
+```{r session-info}
+
+sessionInfo()
+
+```
