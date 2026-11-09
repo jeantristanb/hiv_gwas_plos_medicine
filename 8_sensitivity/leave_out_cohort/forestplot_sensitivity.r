@@ -46,19 +46,19 @@ cohort_labels_cord <- c(
   "fem_cc"              = "CC (F)",
   "fem_nc"              = "NC (F)",
   "male_nc"             = "NC (M)",
-  "jcs_all"             = "JCs",
+  "jcs_all"             = "JCS",
   "awi_east_fem"        = "AWI-East (F)",
   "awi_east_male"       = "AWI-East (M)",
   "awi_south_fem"       = "AWI-South (F)",
   "awi_south_male"      = "AWI-South (M)",
   "uganda_fem_chrprefix" = "Uganda (F)",
   "uganda_male_chrprefix" = "Uganda (M)",
-  "hiv_africa"        = "HIV (Full)"
+  "hiv_africa"        = "Meta-SSA"
 )
 
 cohort_order <- c(
-  "HIV (Full)",
-  "JCs",
+  "Meta-SSA",
+  "JCS",
   # JCS
   "BC (F)",
   "CC (F)",
@@ -119,7 +119,7 @@ ggplot(x, aes(y = cohort_discarded, x = OR)) +
     aes(
       xmin = CI_low,
       xmax = CI_high,
-      colour = cohort_discarded == "HIV (Full)"
+      colour = cohort_discarded == "Meta-SSA"
     ),
     orientation = "y",
     height = 0.2
@@ -127,8 +127,8 @@ ggplot(x, aes(y = cohort_discarded, x = OR)) +
 
   geom_point(
     aes(
-      colour = cohort_discarded == "HIV (Full)"
-    ),
+      colour = cohort_discarded == "Meta-SSA"
+   ),
     size = 2
   ) +
 
@@ -142,5 +142,5 @@ ggplot(x, aes(y = cohort_discarded, x = OR)) +
 
   scale_x_log10() +
 
-  facet_wrap(~ rsID,scales = "free_x") + labs(x = "Odds ratio (95% CI)",y = "Cohort excluded") +theme_classic()
+  facet_wrap(~ rsID,scales = "free_x") + labs(x = "Odds ratio (95% CI)",y = "Dataset excluded") +theme_classic()
 ggsave('comparison_model_discarded.tif')
