@@ -212,3 +212,7 @@ run.bash
 
 The resulting meta-analysis outputs can be compared with the original full Africa meta-analysis to assess the influence of each individual summary-statistics dataset.
 
+
+## Forestplot
+* `forestplot_sensitivity.r` : extract information from each study and plot by rsid
+
